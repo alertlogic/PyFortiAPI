@@ -89,7 +89,7 @@ class FortiGate:
     def get_limits(self):
         if not self.version:
             self.login()
-        return FORTIGATE_LIMITS.get(self['major'], 'default')
+        return FORTIGATE_LIMITS.get(self.version['major'], 'default')
 
 
     # General Logic Methods
