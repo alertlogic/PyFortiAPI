@@ -65,12 +65,13 @@ class FortiGate:
         # Check whether login was successful
         login_check = session.get(self.urlbase + "api/v2/cmdb/system/vdom")
 
+        login_check.raise_for_status()
+
         if not self.version:
             # Get FortiGate version number
             major, minor, patch = login_check.json()['version'].split('.')
             self.version = {'major': major, 'minor': minor, 'patch': patch}
 
-        login_check.raise_for_status()
         return session
 
     def logout(self, session):
