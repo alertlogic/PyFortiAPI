@@ -7,6 +7,7 @@ __version__ = "0.3.0"
 
 import requests
 import logging
+import re
 
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
@@ -57,10 +58,20 @@ class FortiGate:
                      timeout=self.timeout)
 
         # Get CSRF token from cookies, add to headers
-        for cookie in session.cookies:
-            if cookie.name == 'ccsrftoken':
-                csrftoken = cookie.value[1:-1]  # strip quotes
-                session.headers.update({'X-CSRFTOKEN': csrftoken})
+        cookie_name = "ccsrftoken"
+        # Check the old format e.g "ccsrftoken"
+        cookies = [o for o in session.cookies if o and o.name == cookie_name]
+        # Check the new format e.g. "ccsrftoken_443"
+        if not cookies:
+            regex = cookie_name + r"_\d+$"
+            cookies = [o for o in session.cookies if re.match(regex, o.name)]
+
+        if not cookies:
+            raise ValueError("invalid login credentials, absent cookie ccsrftoken")
+
+        cookie = cookies[0]
+        token = str(cookie.value).strip("\"")
+        session.headers.update({"X-CSRFTOKEN": token})
 
         # Check whether login was successful
         login_check = session.get(self.urlbase + "api/v2/cmdb/system/vdom")
