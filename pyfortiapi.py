@@ -7,12 +7,22 @@ __version__ = "0.3.0"
 
 import requests
 import logging
+import re
 
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
+GROUP_SIZE_LIMIT_NAME = 'GROUP_SIZE_LIMIT'
+FORTIGATE_LIMITS = {
+    'default': {
+        GROUP_SIZE_LIMIT_NAME: 300
+    },
+    'v7': {
+        GROUP_SIZE_LIMIT_NAME: 600
+    }
+}
 
 class FortiGate:
-    def __init__(self, ipaddr, username, password, timeout=10, vdom="root", port="443", verify=False):
+    def __init__(self, ipaddr, username, password, timeout=10, vdom="root", port="443", verify=False, keep_alive=False):
 
         self.ipaddr = ipaddr
         self.username = username
@@ -22,6 +32,8 @@ class FortiGate:
         self.timeout = timeout
         self.vdom = vdom
         self.verify = verify
+        self.version = None
+        self.session = keep_alive and self.login() or None
 
     # Login / Logout Handlers
     def login(self):
@@ -46,14 +58,31 @@ class FortiGate:
                      timeout=self.timeout)
 
         # Get CSRF token from cookies, add to headers
-        for cookie in session.cookies:
-            if cookie.name == 'ccsrftoken':
-                csrftoken = cookie.value[1:-1]  # strip quotes
-                session.headers.update({'X-CSRFTOKEN': csrftoken})
+        cookie_name = "ccsrftoken"
+        # Check the old format e.g "ccsrftoken"
+        cookies = [o for o in session.cookies if o and o.name == cookie_name]
+        # Check the new format e.g. "ccsrftoken_443"
+        if not cookies:
+            regex = cookie_name + r"_\d+$"
+            cookies = [o for o in session.cookies if re.match(regex, o.name)]
+
+        if not cookies:
+            raise ValueError("invalid login credentials, absent cookie ccsrftoken")
+
+        cookie = cookies[0]
+        token = str(cookie.value).strip("\"")
+        session.headers.update({"X-CSRFTOKEN": token})
 
         # Check whether login was successful
         login_check = session.get(self.urlbase + "api/v2/cmdb/system/vdom")
+
         login_check.raise_for_status()
+
+        if not self.version:
+            # Get FortiGate version number
+            major, minor, patch = login_check.json()['version'].split('.')
+            self.version = {'major': major, 'minor': minor, 'patch': patch}
+
         return session
 
     def logout(self, session):
@@ -68,6 +97,16 @@ class FortiGate:
         session.get(url, verify=self.verify, timeout=self.timeout)
         logging.info("Session logged out.")
 
+
+    def get_limits(self):
+        if not self.version:
+            self.login()
+        major_version = self.version.get('major')
+        if major_version in FORTIGATE_LIMITS:
+            return FORTIGATE_LIMITS.get(major_version)
+        return FORTIGATE_LIMITS.get('default')
+
+
     # General Logic Methods
     def does_exist(self, object_url):
         """
@@ -77,9 +116,10 @@ class FortiGate:
 
         :return: Bool - True if exists, False if not
         """
-        session = self.login()
+        session = self.session or self.login()
         request = session.get(object_url, verify=self.verify, timeout=self.timeout, params='vdom='+self.vdom)
-        self.logout(session)        
+        if not self.session:
+            self.logout(session)
         if request.status_code == 200:
             return True
         else:
@@ -94,9 +134,11 @@ class FortiGate:
 
         :return: Request result if successful (type list), HTTP status code otherwise (type int)
         """
-        session = self.login()
+        session = self.session or self.login()
         request = session.get(url, verify=self.verify, timeout=self.timeout, params='vdom='+self.vdom)
-        self.logout(session)
+        if not self.session:
+            self.logout(session)
+
         if request.status_code == 200:
             return request.json()['results']
         else:
@@ -111,9 +153,10 @@ class FortiGate:
 
         :return: HTTP status code returned from PUT operation
         """
-        session = self.login()
+        session = self.session or self.login()
         result = session.put(url, data=data, verify=self.verify, timeout=self.timeout, params='vdom='+self.vdom).status_code
-        self.logout(session)
+        if not self.session:
+            self.logout(session)
         return result
 
     def post(self, url, data):
@@ -125,9 +168,10 @@ class FortiGate:
 
         :return: HTTP status code returned from POST operation
         """
-        session = self.login()
+        session = self.session or self.login()
         result = session.post(url, data=data, verify=self.verify, timeout=self.timeout, params='vdom='+self.vdom).status_code
-        self.logout(session)
+        if not self.session:
+            self.logout(session)
         return result
 
     def delete(self, url):
@@ -138,9 +182,11 @@ class FortiGate:
 
         :return: HTTP status code returned from DELETE operation
         """
-        session = self.login()
+        session = self.session or self.login()
         result = session.delete(url, verify=self.verify, timeout=self.timeout, params='vdom='+self.vdom).status_code
-        self.logout(session)
+
+        if not self.session:
+            self.logout(session)
         return result
 
     # Firewall Address Methods
@@ -178,7 +224,7 @@ class FortiGate:
         result = self.put(api_url, data)
         return result
 
-    def create_firewall_address(self, address, data):
+    def create_firewall_address(self, address, data, vdoms=None):
         """
         Create firewall address record
 
