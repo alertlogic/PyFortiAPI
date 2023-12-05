@@ -59,15 +59,11 @@ class FortiGate:
 
         # Get CSRF token from cookies, add to headers
         cookie_name = "ccsrftoken"
-        # Check the old format e.g "ccsrftoken"
-        cookies = [o for o in session.cookies if o and o.name == cookie_name]
-        # Check the new format e.g. "ccsrftoken_443"
-        if not cookies:
-            regex = cookie_name + r"_\d+$"
-            cookies = [o for o in session.cookies if re.match(regex, o.name)]
+
+        cookies = [o for o in session.cookies if o and o.name.startswith(cookie_name)]
 
         if not cookies:
-            raise ValueError("invalid login credentials, absent cookie ccsrftoken")
+            raise ValueError("Invalid login credentials. Cookie 'ccsrftoken' is missing.")
 
         cookie = cookies[0]
         token = str(cookie.value).strip("\"")
