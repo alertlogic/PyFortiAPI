@@ -50,6 +50,8 @@ class FortiGate:
 
         url = self.urlbase + 'logincheck'
 
+        session.verify=self.verify
+
         # Login
         session.post(url,
                      data='username={username}&secretkey={password}'.format(username=self.username,
