@@ -93,6 +93,7 @@ class FortiGate:
         """
         url = self.urlbase + 'logout'
         session.get(url, verify=self.verify, timeout=self.timeout)
+        session.close()
         logging.info("Session logged out.")
 
 
