@@ -44,6 +44,14 @@ class FortiGate:
         :return: Open Session
         """
         session = requests.session()
+        try:
+            self._login(session)
+            return session
+        except Exception:
+            session.close()
+            raise
+
+    def _login(self, session):
         if not self.verify:
             # Disable requests' warnings for insecure connections
             requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
@@ -81,7 +89,6 @@ class FortiGate:
             major, minor, patch = login_check.json()['version'].split('.')
             self.version = {'major': major, 'minor': minor, 'patch': patch}
 
-        return session
 
     def logout(self, session):
         """
